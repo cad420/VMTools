@@ -12,61 +12,58 @@
 #include <VMUtils/cmdline.hpp>
 
 
-namespace ysl
-{
 
-	template<typename T>
-	class Sampler3D
+template<typename T>
+class Sampler3D
+{
+	T* const data;
+	const vm::Size3 size;
+public:
+	Sampler3D(T* data, const vm::Size3 size) :data(data), size(size)
 	{
-		T * const data;
-		const Size3 size;
-	public:
-		Sampler3D(T * data,const ysl::Size3 size):data(data),size(size)
-		{
-			
-		}
-		ysl::Float Sample(const ysl::Point3i & p)
-		{
-			ysl::Bound3i bound(ysl::Point3i(0, 0, 0), ysl::Point3i(size.x,size.y,size.z));
-			if (!bound.InsideEx(p))
-				return 0;
-			return (*this)(p.x, p.y, p.z);
-		}
 
-		Float Sample(const Point3f & p)
-		{
-			const auto pi = Point3i(std::floor(p.x), std::floor(p.y), std::floor(p.z));
-			const auto d = p - static_cast<Point3f>(pi);
-			const auto d00 = Lerp(d.x, Sample(pi), Sample(pi + Vector3i(1, 0, 0)));
-			const auto d10 = Lerp(d.x, Sample(pi + Vector3i(0, 1, 0)), Sample(pi + Vector3i(1, 1, 0)));
-			const auto d01 = Lerp(d.x, Sample(pi + Vector3i(0, 0, 1)), Sample(pi + Vector3i(1, 0, 1)));
-			const auto d11 = Lerp(d.x, Sample(pi + Vector3i(0, 1, 1)), Sample(pi + Vector3i(1, 1, 1)));
-			const auto d0 = ysl::Lerp(d.y, d00, d10);
-			const auto d1 = ysl::Lerp(d.y, d01, d11);
-			return ysl::Lerp(d.z, d0, d1);
-		}
+	}
+	vm::Float Sample(const vm::Point3i& p)
+	{
+		vm::Bound3i bound(vm::Point3i(0, 0, 0), vm::Point3i(size.x, size.y, size.z));
+		if (!bound.InsideEx(p))
+			return 0;
+		return (*this)(p.x, p.y, p.z);
+	}
 
-		T operator()(int x,int y,int z)const
-		{
-			return data[z * size.y*size.x + y * size.x + x];
-		}
+	vm::Float Sample(const vm::Point3f& p)
+	{
+		const auto pi = vm::Point3i(std::floor(p.x), std::floor(p.y), std::floor(p.z));
+		const auto d = p - static_cast<vm::Point3f>(pi);
+		const auto d00 = vm::Lerp(d.x, Sample(pi), Sample(pi + vm::Vector3i(1, 0, 0)));
+		const auto d10 = vm::Lerp(d.x, Sample(pi + vm::Vector3i(0, 1, 0)), Sample(pi + vm::Vector3i(1, 1, 0)));
+		const auto d01 = vm::Lerp(d.x, Sample(pi + vm::Vector3i(0, 0, 1)), Sample(pi + vm::Vector3i(1, 0, 1)));
+		const auto d11 = vm::Lerp(d.x, Sample(pi + vm::Vector3i(0, 1, 1)), Sample(pi + vm::Vector3i(1, 1, 1)));
+		const auto d0 = vm::Lerp(d.y, d00, d10);
+		const auto d1 = vm::Lerp(d.y, d01, d11);
+		return vm::Lerp(d.z, d0, d1);
+	}
 
-		T * Get()
-		{
-			return data;
-		}
+	T operator()(int x, int y, int z)const
+	{
+		return data[z * size.y * size.x + y * size.x + x];
+	}
 
-		Size3 GetSize()const
-		{
-			return size;
-		}
-	};
-}
+	T* Get()
+	{
+		return data;
+	}
+
+	vm::Size3 GetSize()const
+	{
+		return size;
+	}
+};
 
 
-ysl::Size3 SampleSize(const ysl::Size3 & orignalSize, const ysl::Vector3f & factor)
+vm::Size3 SampleSize(const vm::Size3& orignalSize, const vm::Vector3f& factor)
 {
-	return ysl::Size3(1.0*orignalSize.x / factor.x, 1.0*orignalSize.y / factor.y, 1.0*orignalSize.z / factor.z);
+	return vm::Size3(1.0 * orignalSize.x / factor.x, 1.0 * orignalSize.y / factor.y, 1.0 * orignalSize.z / factor.z);
 }
 
 template <typename T>
@@ -74,17 +71,17 @@ void Sample(const std::string& inFileName, int offset, int x, int y, int z, floa
 {
 
 
-	const auto sampleSize = ysl::Size3(1.0 * x / sx + 0.5, 1.0 * y / sy + 0.5, 1.0 * z / sz + 0.5);
-	ysl::Vector3f step(1.0 * x / sampleSize.x, 1.0 * y / sampleSize.y, 1.0 * z / sampleSize.z);
+	const auto sampleSize = vm::Size3(1.0 * x / sx + 0.5, 1.0 * y / sy + 0.5, 1.0 * z / sz + 0.5);
+	vm::Vector3f step(1.0 * x / sampleSize.x, 1.0 * y / sampleSize.y, 1.0 * z / sampleSize.z);
 
 
 	std::cout << "Downsample Size:" << sampleSize << std::endl;
 	std::cout << "Step:" << step << std::endl;
-	
+
 	std::unique_ptr<T> buf(new T[x * y * z]);
 	vm::Ref<IFileMapping> rm;
 #ifdef _WIN32
-	rm = ysl::PluginLoader::GetPluginLoader()->CreatePlugin<IFileMapping>("windows");
+	rm = vm::PluginLoader::GetPluginLoader()->CreatePlugin<IFileMapping>("windows");
 #else
 	rm = ysl::PluginLoader::GetPluginLoader()->CreatePlugin<IFileMapping>("linux");
 #endif
@@ -100,8 +97,8 @@ void Sample(const std::string& inFileName, int offset, int x, int y, int z, floa
 		std::cout << "File mapping failed\n";
 		return;
 	}
-	
-	ysl::Sampler3D<T> sampler(reinterpret_cast<T*>((char*)ptr + offset),ysl::Size3(x,y,z));
+
+	Sampler3D<T> sampler(reinterpret_cast<T*>((char*)ptr + offset), vm::Size3(x, y, z));
 
 
 	const auto sliceStep = 5;
@@ -126,8 +123,8 @@ void Sample(const std::string& inFileName, int offset, int x, int y, int z, floa
 			{
 				for (int xx = 0; xx < sampleSize.x; xx++)
 				{
-					const auto index = sampleSize.x * ((s)* sampleSize.y + yy) + xx;
-					downsampleData[index] = sampler.Sample(ysl::Point3f(xx * step.x, yy * step.y, (zz + s) * step.z));
+					const auto index = sampleSize.x * ((s)*sampleSize.y + yy) + xx;
+					downsampleData[index] = sampler.Sample(vm::Point3f(xx * step.x, yy * step.y, (zz + s) * step.z));
 				}
 			}
 		}
@@ -141,7 +138,7 @@ void Sample(const std::string& inFileName, int offset, int x, int y, int z, floa
 int main()
 {
 	// load plugin
-	ysl::PluginLoader::LoadPlugins("ioplugin");
+	vm::PluginLoader::LoadPlugins("ioplugin");
 
 	std::size_t x, y, z;
 	float sx, sy, sz;
@@ -150,7 +147,7 @@ int main()
 	std::size_t offset;
 	std::cout << "[filename(str), offset(std::size_t),  x(int), y(int), z(int),xfactor(int), yfactor(int),zfactor(int), ouputfilename(str), type(0 = int,1 = byte, 2 = short int,3 = float)]\n";
 	std::cin >> inFileName >> offset >> x >> y >> z >> sx >> sy >> sz >> outFileName >> type;
-	
+
 	if (type == 0)
 		Sample<int>(inFileName, offset, x, y, z, sx, sy, sz, outFileName);
 	else if (type == 1)

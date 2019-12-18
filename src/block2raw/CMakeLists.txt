@@ -1,0 +1,6 @@
+add_executable(block2raw)
+target_sources(block2raw PRIVATE "block2raw.cpp")
+target_link_libraries(block2raw vmcore)
+#target_include_directories(block2raw PRIVATE)
+#vm_target_dependency(block2raw vmocore PRIVATE)
+install(TARGETS block2raw LIBRARY DESTINATION "lib" RUNTIME DESTINATION "bin" ARCHIVE DESTINATION "lib")

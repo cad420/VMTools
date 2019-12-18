@@ -6,17 +6,19 @@
 #include <fstream>
 
 
+using namespace vm;
+
 struct LZ4Encoder
 {
 private:
-	ysl::LVDReader& lvdFileReader;
+	LVDReader& lvdFileReader;
 public:
-	LZ4Encoder(ysl::LVDReader& lvdFileReader):lvdFileReader(lvdFileReader)
+	LZ4Encoder(LVDReader& lvdFileReader):lvdFileReader(lvdFileReader)
 	{
 	}
 	bool Save(const std::string& fileName)
 	{
-		ysl::LVDHeader newHeader;
+		LVDHeader newHeader;
 		const auto& h = lvdFileReader.GetHeader();
 		newHeader.magicNum = 277537;
 		newHeader.blockLengthInLog = h.blockLengthInLog;
@@ -97,7 +99,7 @@ int main()
 	std::cout << "[intput filename(str), output filename(str)]\n";
 	std::cin >> input >> output;
 
-	ysl::LVDReader reader(input);
+	LVDReader reader(input);
 	LZ4Encoder endcoder(reader);
 	endcoder.Save(output);
 	return 0;

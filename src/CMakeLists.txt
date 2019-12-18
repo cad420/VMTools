@@ -15,13 +15,19 @@ if(VM_BUILD_LVDCONVERTER)
 add_subdirectory("lvdconverter")
 endif()
 
+option(VM_BUILD_BLOCK2RAW "Set ON to build block2raw" ON)
+if(VM_BUILD_BLOCK2RAW)
+add_subdirectory("block2raw")
+endif()
+
+
+option(VM_BUILD_BLOCKEXTRACTOR "Set ON to build blockextractor" ON)
+if(VM_BUILD_BLOCKEXTRACTOR)
+add_subdirectory("blockextractor")
+endif()
+
 option(VM_BUILD_LZ4COMPRESSION "Set ON to build lz4 compressor (lz4 library is required)" OFF)
 if(VM_BUILD_LZ4COMPRESSION)
 add_subdirectory("lz4compression")
 endif()
 
-
-option(VM_BUILD_H264COMPRESSION "Set ON to build h264 compressor" OFF)
-if(VM_BUILD_H264COMPRESSION)
-add_subdirectory("h264compression")
-endif()
