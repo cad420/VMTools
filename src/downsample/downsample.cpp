@@ -19,10 +19,10 @@ using namespace vm;
 template<typename T>
 class Sampler3D
 {
-	T* const data;
+	const T* const data;
 	const vm::Size3 size;
 public:
-	Sampler3D(T* data, const vm::Size3 size) :data(data), size(size)
+	Sampler3D(const T* data, const vm::Size3 size) :data(data), size(size)
 	{
 
 	}
@@ -266,7 +266,7 @@ struct TriLinear :Interpolation<ValueType>
 		const ValueType* src,
 		const Vec3i& batchSize)
 	{
-		return ValueType();
+		return Sampler3D<ValueType>(src, Size3(batchSize)).Sample(sampledGridLocalPos);
 	}
 };
 
@@ -280,7 +280,8 @@ struct InterpolationBasedSampler
 	{
 		println("Interpolation based");
 
-		const Vec3i batchCount{ 1,1,RoundUpDivide(size.z,ItplBasedFilter::SliceCount) };
+		const Vec3i batchCount( 1,1,RoundUpDivide(size.z,ItplBasedFilter::SliceCount) );
+
 		const Vec3i batchSize(size.x, size.y, ItplBasedFilter::SliceCount);
 
 		RawReader reader(fileName, size, sizeof(ValueType));
@@ -302,14 +303,16 @@ struct InterpolationBasedSampler
 		for (int bz = 0; bz < batchCount.z; bz++)
 		{
 			int slice = ItplBasedFilter::SliceCount;
-			if (bz == batchCount.z - 1)
+			if (bz == batchCount.z - 1 && size.z % ItplBasedFilter::SliceCount)
 			{
 				slice = size.z % ItplBasedFilter::SliceCount;
 			}
-			const auto batchStart = Vec3i(1, 1, bz) * Vec3i(batchSize);
-			const Size3 curBatchSize(batchSize.x, batchSize.y, slice);
 
-			reader.readRegion(batchStart, curBatchSize, batchBuf.get());
+			const auto batchStart = Vec3i(1, 1, bz) * Vec3i(batchSize);
+
+			const Vec3i curBatchSize(batchSize.x, batchSize.y, slice);
+
+			reader.readRegion(batchStart, Size3(curBatchSize), batchBuf.get());
 
 			const int sampledSliceCount = 1.0 * (bz * batchSize.z + curBatchSize.z) / step.z;
 			const auto curSampledSliceCount = sampledSliceCount - sumSampledZCount;
@@ -334,7 +337,7 @@ struct InterpolationBasedSampler
 			}
 			sumSampledZCount = sampledSliceCount;
 			sampledVolume.z += curSampledVolume.z;
-			out.write(sampledBuf.get(), sizeof(ValueType) * curSampledVolume.Prod());
+			out.write((char*)sampledBuf.get(), sizeof(ValueType) * curSampledVolume.Prod());
 		}
 		out.close();
 	}
@@ -377,14 +380,14 @@ struct KernelBasedSampler
 		{
 			const auto batchStart = Vec3i(0, 0, bz) * Vec3i(batchSize);
 
-			Size3 curBatchSize(batchSize.x, batchSize.y, KernelBasedFilter::KernelSize + 1);
+			Vec3i curBatchSize(batchSize.x, batchSize.y, KernelBasedFilter::KernelSize + 1);
 
 			if (bz == batchCount.z - 1 && size.z % (KernelBasedFilter::KernelSize + 1) )
 			{
 				curBatchSize.z = size.z % (KernelBasedFilter::KernelSize+ 1);
 			}
 
-			reader.readRegion(batchStart, curBatchSize, batchBuf.get());
+			reader.readRegion(batchStart, Size3(curBatchSize), batchBuf.get());
 
 			println("batch id:{}, batch start: {},current batch size: {}", bz, batchStart, curBatchSize);
 
@@ -393,8 +396,8 @@ struct KernelBasedSampler
 				for (int x = 0; x < plane.x; x++)
 				{
 					const Point3i globalPos{ x,y,bz };
-					const Point3f localPos = KernelBasedFilterType::Trans(globalPos, batchSize, Vec3i{ 0,0,bz });
-					*(sampledBuf.get() + Linear({ x,y }, plane.x)) = KernelBasedFilter::Sample(globalPos, localPos, batchBuf.get(), batchSize);
+					const Point3f localPos = KernelBasedFilterType::Trans(globalPos, curBatchSize, Vec3i{ 0,0,bz });
+					*(sampledBuf.get() + Linear({ x,y }, plane.x)) = KernelBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
 				}
 			}
 			out.write((char *)sampledBuf.get(), sizeof(ValueType) * plane.Prod());
@@ -416,8 +419,9 @@ template<typename FilterType> struct Sampler< FilterType, typename std::enable_i
 int main()
 {
 
-
-	Sampler<MaxKernel<unsigned char>>().Downsample({480,720,120},R"(E:\Desktop\mixfrac.raw)",{},R"(E:\Desktop\kds.raw)");
+ 
+	//Sampler<TrivialKernel<unsigned char>>().Downsample({480,720,120},R"(C:\tmp\mixfrac.raw)",{},R"(C:\tmp\kds.raw)");
+	Sampler<TriLinear<unsigned char>>().Downsample({480,720,120},R"(C:\tmp\mixfrac.raw)",{2.f,2.f,2.f},R"(C:\tmp\kds.raw)");
 
 	//Sampler<TriLinear<unsigned char>> b;
 	//Sampler<GaussianKernel<unsigned char>> c;
