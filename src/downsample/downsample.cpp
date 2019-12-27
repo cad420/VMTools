@@ -16,52 +16,56 @@
 using namespace std;
 using namespace vm;
 
-template<typename T>
-class Sampler3D
-{
-	const T* const data;
-	const vm::Size3 size;
-public:
-	Sampler3D(const  T* data, const vm::Size3 size) :data(data), size(size)
-	{
+namespace vm {
 
-	}
-	vm::Float Sample(const vm::Point3i& p)
+	template<typename T>
+	class Interpolator
 	{
-		vm::Bound3i bound(vm::Point3i(0, 0, 0), vm::Point3i(size.x, size.y, size.z));
-		if (!bound.InsideEx(p))
-			return 0;
-		return (*this)(p.x, p.y, p.z);
-	}
+		const T* const data;
+		const Vec3i size;
+	public:
+		Interpolator(const T* data, const Size3 size) :data(data), size(size)
+		{
 
-	vm::Float Sample(const vm::Point3f& p)
-	{
-		const auto pi = vm::Point3i(std::floor(p.x), std::floor(p.y), std::floor(p.z));
-		const auto d = p - static_cast<vm::Point3f>(pi);
-		const auto d00 = vm::Lerp(d.x, Sample(pi), Sample(pi + vm::Vector3i(1, 0, 0)));
-		const auto d10 = vm::Lerp(d.x, Sample(pi + vm::Vector3i(0, 1, 0)), Sample(pi + vm::Vector3i(1, 1, 0)));
-		const auto d01 = vm::Lerp(d.x, Sample(pi + vm::Vector3i(0, 0, 1)), Sample(pi + vm::Vector3i(1, 0, 1)));
-		const auto d11 = vm::Lerp(d.x, Sample(pi + vm::Vector3i(0, 1, 1)), Sample(pi + vm::Vector3i(1, 1, 1)));
-		const auto d0 = vm::Lerp(d.y, d00, d10);
-		const auto d1 = vm::Lerp(d.y, d01, d11);
-		return vm::Lerp(d.z, d0, d1);
-	}
+		}
 
-	T operator()(int x, int y, int z)const
-	{
-		return data[z * size.y * size.x + y * size.x + x];
-	}
+		Float Sample(const vm::Point3i& p)
+		{
+			Bound3i bound(vm::Point3i(0, 0, 0), vm::Point3i(size.x, size.y, size.z));
+			if (!bound.InsideEx(p))
+				return 0;
+			return (*this)(p.x, p.y, p.z);
+		}
 
-	T* Get()
-	{
-		return data;
-	}
+		Float Sample(const Point3f& p)
+		{
+			const auto pi = Point3i(std::floor(p.x), std::floor(p.y), std::floor(p.z));
+			const auto d = p - static_cast<vm::Point3f>(pi);
+			const auto d00 = Lerp(d.x, Sample(pi), Sample(pi + vm::Vector3i(1, 0, 0)));
+			const auto d10 = Lerp(d.x, Sample(pi + Vector3i(0, 1, 0)), Sample(pi + Vector3i(1, 1, 0)));
+			const auto d01 = Lerp(d.x, Sample(pi + Vector3i(0, 0, 1)), Sample(pi + Vector3i(1, 0, 1)));
+			const auto d11 = Lerp(d.x, Sample(pi + Vector3i(0, 1, 1)), Sample(pi + Vector3i(1, 1, 1)));
+			const auto d0 = Lerp(d.y, d00, d10);
+			const auto d1 = Lerp(d.y, d01, d11);
+			return Lerp(d.z, d0, d1);
+		}
 
-	vm::Size3 GetSize()const
-	{
-		return size;
-	}
-};
+		T operator()(int x, int y, int z)const
+		{
+			return data[z * size.y * size.x + y * size.x + x];
+		}
+
+		T* Get()
+		{
+			return data;
+		}
+
+		Vec3i GetSize()const
+		{
+			return size;
+		}
+	};
+}
 
 //
 //vm::Size3 SampleSize(const vm::Size3& orignalSize, const vm::Vector3f& factor)
@@ -149,338 +153,412 @@ public:
 //
 
 
-template<typename T>
-struct MethodBase
+namespace vm
 {
-	using ValueType = T;
-};
-
-
-template<typename T>
-struct InterpolationBase :MethodBase<T> {};
-
-template<typename T>
-struct Interpolation :InterpolationBase<T>
-{
-	static constexpr int SliceCount = 10;
-	static Point3f Trans(const Point3i& sampledGridGlobalPos, const Vec3i& batchSize, const Vec3i& batch3DID, const Vec3f& step)
+	template<typename T>
+	struct MethodBase
 	{
-		return (Vec3f(sampledGridGlobalPos.ToVector3()) * step - Vec3f(batchSize * batch3DID)).ToPoint3();
-	}
-};
-
-template<typename T>
-struct KernelBase :MethodBase<T> {};
-
-template<typename valType, int FilterSize>
-struct Kernel :KernelBase<valType>
-{
-	static constexpr int KernelSize = FilterSize;
-	static Point3f Trans(const Point3i& sampledGridGlobalPos, const Vec3i& batchSize, const Vec3i& batch3DID)
-	{
-		const auto halfSize = 1.0f * KernelSize / 2;
-		return (Vec3f(sampledGridGlobalPos.x * KernelSize + halfSize, sampledGridGlobalPos.y * KernelSize + halfSize, sampledGridGlobalPos.z * KernelSize + halfSize)
-			- Vec3f(Vec3i{batchSize.x,batchSize.y,batchSize.z-1} *batch3DID)).ToPoint3();
-	}
-};
-
-template<typename ValueType>
-struct MaxKernel :Kernel<ValueType, 2>
-{
-	static constexpr Vec3i offset[27] = {
-		{-1,-1,-1},
-		{-1,-1,0},
-		{-1,-1,1},
-		{-1,0,-1},
-		{-1,0,0},
-		{-1,0,1},
-	    {-1,1,-1},
-		{-1,1,0},
-		{-1,1,1},
-		{0,-1,-1},
-		{0,-1,0},
-		{0,-1,1},
-		{0,0,-1},
-		{0,0,0},
-		{0,0,1},
-		{0,1,-1},
-		{0,1,0},
-		{0,1,1},
-		{1,-1,-1},
-		{1,-1,0},
-		{1,-1,1},
-		{1,0,-1},
-		{1,0,0},
-		{1,0,1},
-		{1,1,-1},
-		{1,1,0},
-		{1,1,1},
+		using ValueType = T;
 	};
 
-	static ValueType Sample(const Point3i& sampledGridGlobalPos,
-		const Point3f& sampledGridLocalPos,
-		const ValueType* src,
-		const Vec3i& batchSize)
+	template<typename T>
+	struct InterpolationBase :MethodBase<T> {};
+
+	template<typename T>
+	struct Interpolation :InterpolationBase<T>
 	{
-		const auto pos = Point3i(sampledGridLocalPos);
-		ValueType val = std::numeric_limits<ValueType>::lowest();
-		for(int i = 0 ; i< 27;i++)
+		static constexpr int SliceCount = 10;
+		static Point3f Trans(const Point3i& sampledGridGlobalPos, const Vec3i& batchSize, const Vec3i& batch3DID, const Vec3f& step)
 		{
-			val = std::max(val, *(src + Linear(pos + offset[i], Size2(batchSize.x, batchSize.y))));
+			return (Vec3f(sampledGridGlobalPos.ToVector3()) * step - Vec3f(batchSize * batch3DID)).ToPoint3();
 		}
-		return val;
-	}
-};
+	};
 
-template<typename ValueType>
-struct TrivialKernel :Kernel<ValueType, 2>
-{
-	static ValueType Sample(const Point3i& sampledGridGlobalPos,
-		const Point3f& sampledGridLocalPos,
-		const ValueType* src,
-		const Vec3i& batchSize)
+	template<typename T>
+	struct KernelBase :MethodBase<T> {};
+
+	template<typename valType, int FilterSize>
+	struct Kernel :KernelBase<valType>
 	{
-		const auto pos = Point3i(sampledGridLocalPos);
-		return *(src + Linear(pos,Size2(batchSize.x,batchSize.y)));
-	}
-	
-};
-
-template<typename ValueType>
-struct GaussianKernel :Kernel<ValueType, 2>
-{
-	static ValueType Sample(const Point3i& sampledGridGlobalPos,
-		const Point3f& sampledGridLocalPos,
-		const ValueType* src,
-		const Vec3i& batchSize)
-	{
-		return ValueType();
-	}
-};
-
-template<typename ValueType>
-struct TriLinear :Interpolation<ValueType>
-{
-	static ValueType Sample(const Point3i& sampledGridGlobalPos,
-		const Point3f& sampledGridLocalPos,
-		const ValueType* src,
-		const Vec3i& batchSize)
-	{
-		return Sampler3D<ValueType>(src, Size3(batchSize)).Sample(sampledGridLocalPos);
-	}
-};
-
-template<typename InterpolationFilterType>
-struct InterpolationBasedSampler
-{
-	using ItplBasedFilter = InterpolationFilterType;
-	using ValueType = typename InterpolationFilterType::ValueType;
-	void Downsample(const Size3& size,
-		const std::string& fileName, const Vec3f& scale, const std::string& outFileName)
-	{
-		println("Interpolation based");
-
-		const Vec3i batchCount( 1,1,RoundUpDivide(size.z,ItplBasedFilter::SliceCount) );
-
-		const Vec3i batchSize(size.x, size.y, ItplBasedFilter::SliceCount);
-
-		RawReader reader(fileName, size, sizeof(ValueType));
-		std::unique_ptr<ValueType[]> batchBuf(new ValueType[batchSize.Prod()]);
-		std::ofstream out(outFileName, std::ios::binary);
-
-
-
-		const Size3 sampledCount(1.0 * size.x / scale.x + 0.5, 1.0 * size.y / scale.y + 0.5, 1.0 * size.z / scale.z + 0.5);
-		const Vector3f step(1.0 * size.x / sampledCount.x, 1.0 * size.y / sampledCount.y, 1.0 * size.z / sampledCount.z);
-
-		const Size3 maxSampledVolume(sampledCount.x, sampledCount.y, std::ceil(ItplBasedFilter::SliceCount * 1.0 / step.z));
-		std::unique_ptr<ValueType[]> sampledBuf(new ValueType[maxSampledVolume.Prod()]);
-
-		println("BatchSize: {}, sampled Volume Size: {}, Filter Size: {}, Data Size: {}", batchSize, maxSampledVolume, ItplBasedFilter::SliceCount, size);
-		int sumSampledZCount = 0;
-		Size3 sampledVolume(sampledCount.x, sampledCount.y, 0);
-
-		for (int bz = 0; bz < batchCount.z; bz++)
+		static constexpr int KernelSize = FilterSize;
+		static Point3f Trans(const Point3i& sampledGridGlobalPos, const Vec3i& batchSize, const Vec3i& batch3DID)
 		{
-			int slice = ItplBasedFilter::SliceCount;
-			if (bz == batchCount.z - 1 && size.z % ItplBasedFilter::SliceCount)
+			const auto halfSize = 1.0f * KernelSize / 2;
+			return (Vec3f(sampledGridGlobalPos.x * KernelSize + halfSize,
+				sampledGridGlobalPos.y * KernelSize + halfSize,
+				sampledGridGlobalPos.z * KernelSize + halfSize)
+				- Vec3f(Vec3i{ batchSize.x - 1,batchSize.y - 1,batchSize.z - 1 } *batch3DID))
+				.ToPoint3();
+		}
+	};
+
+
+
+	template<typename ValueType>
+	struct MaxKernel :Kernel<ValueType, 2>
+	{
+		static constexpr Vec3i offset[27] = {
+			{-1,-1,-1},
+			{-1,-1,0},
+			{-1,-1,1},
+			{-1,0,-1},
+			{-1,0,0},
+			{-1,0,1},
+			{-1,1,-1},
+			{-1,1,0},
+			{-1,1,1},
+			{0,-1,-1},
+			{0,-1,0},
+			{0,-1,1},
+			{0,0,-1},
+			{0,0,0},
+			{0,0,1},
+			{0,1,-1},
+			{0,1,0},
+			{0,1,1},
+			{1,-1,-1},
+			{1,-1,0},
+			{1,-1,1},
+			{1,0,-1},
+			{1,0,0},
+			{1,0,1},
+			{1,1,-1},
+			{1,1,0},
+			{1,1,1},
+		};
+
+		static ValueType Sample(const Point3i& sampledGridGlobalPos,
+			const Point3f& sampledGridLocalPos,
+			const ValueType* src,
+			const Vec3i& batchSize)
+		{
+			const auto pos = Point3i(sampledGridLocalPos);
+			ValueType val = std::numeric_limits<ValueType>::lowest();
+			for (int i = 0; i < 27; i++)
 			{
-				slice = size.z % ItplBasedFilter::SliceCount;
+				val = std::max(val, *(src + Linear(pos + offset[i], Size2(batchSize.x, batchSize.y))));
+			}
+			return val;
+		}
+	};
+
+	template<typename ValueType>
+	struct Trivial2x2Kernel :Kernel<ValueType, 2>
+	{
+		static ValueType Sample(const Point3i& sampledGridGlobalPos,
+			const Point3f& sampledGridLocalPos,
+			const ValueType* src,
+			const Vec3i& batchSize)
+		{
+			const auto pos = Point3i(sampledGridLocalPos);
+			return *(src + Linear(pos, Size2(batchSize.x, batchSize.y)));
+		}
+	};
+
+	template<typename ValueType>
+	struct Gaussian2x2Kernel :Kernel<ValueType, 2>
+	{
+		static ValueType Sample(const Point3i& sampledGridGlobalPos,
+			const Point3f& sampledGridLocalPos,
+			const ValueType* src,
+			const Vec3i& batchSize)
+		{
+			return ValueType();
+		}
+	};
+
+	template<typename ValueType>
+	struct Mean2x2Kernel :Kernel<ValueType, 2>
+	{
+		static constexpr Vec3i offset[27] = {
+				{-1,-1,-1},
+				{-1,-1,0},
+				{-1,-1,1},
+				{-1,0,-1},
+				{-1,0,0},
+				{-1,0,1},
+				{-1,1,-1},
+				{-1,1,0},
+				{-1,1,1},
+				{0,-1,-1},
+				{0,-1,0},
+				{0,-1,1},
+				{0,0,-1},
+				{0,0,0},
+				{0,0,1},
+				{0,1,-1},
+				{0,1,0},
+				{0,1,1},
+				{1,-1,-1},
+				{1,-1,0},
+				{1,-1,1},
+				{1,0,-1},
+				{1,0,0},
+				{1,0,1},
+				{1,1,-1},
+				{1,1,0},
+				{1,1,1},
+		};
+
+		static ValueType Sample(const Point3i& sampledGridGlobalPos,
+			const Point3f& sampledGridLocalPos,
+			const ValueType* src,
+			const Vec3i& batchSize)
+		{
+			const auto pos = Point3i(sampledGridLocalPos);
+			double v = 0;
+			for (int i = 0; i < 27; i++)
+			{
+				v += *(src + Linear(pos + offset[i], Size2(batchSize.x, batchSize.y)));
+			}
+			return v / 27;
+		}
+	};
+
+	template<typename ValueType>
+	struct TriLinear :Interpolation<ValueType>
+	{
+		static ValueType Sample(const Point3i& sampledGridGlobalPos,
+			const Point3f& sampledGridLocalPos,
+			const ValueType* src,
+			const Vec3i& batchSize)
+		{
+			return Interpolator<ValueType>(src, Size3(batchSize)).Sample(sampledGridLocalPos);
+		}
+	};
+
+	template<typename ValueType>
+	struct TriLinearInMemory :Interpolation<ValueType>
+	{};
+
+
+	template<typename InterpolationFilterType>
+	struct InterpolationBasedSampler
+	{
+		using IplBasedFilter = InterpolationFilterType;
+		using ValueType = typename InterpolationFilterType::ValueType;
+
+		static std::pair<Vec3i, Vec3i> GetSubSampledVolumeCount(const Vec3i& batch3DID, const Vec3i& maxBatchSize, const Vec3i& curBatchSize, const Vec3f& step)
+		{
+			const auto curTotalBatch = batch3DID * maxBatchSize + curBatchSize;
+			const Vec3i curTotalSampledCount((1.0 * curTotalBatch.x / step.x + 0.5), (1.0 * curTotalBatch.y / step.y + 0.5), (1.0 * curTotalBatch.z / step.z + 0.5));
+			const auto prevTotalBatch = (batch3DID)*maxBatchSize;
+			Vec3i prevTotalSampledCount((1.0 * prevTotalBatch.x / step.x + 0.5), (1.0 * prevTotalBatch.y / step.y + 0.5), (1.0 * prevTotalBatch.z / step.z + 0.5));
+			if (batch3DID.x == 0)
+			{
+				prevTotalSampledCount.x = 0;// = curBatchSize.x * 1.0 / step.x;
+			}
+			if (batch3DID.y == 0)
+			{
+				prevTotalSampledCount.y = 0;// curBatchSize.y * 1.0 / step.y;
+			}
+			if (batch3DID.z == 0)
+			{
+				prevTotalSampledCount.z = 0; //curBatchSize.z * 1.0 / step.z;
 			}
 
-			const auto batchStart = Vec3i(1, 1, bz) * Vec3i(batchSize);
+			return { prevTotalSampledCount,curTotalSampledCount };
+		}
 
-			const Vec3i curBatchSize(batchSize.x, batchSize.y, slice);
+		static void Resample(const Size3& dataSize,
+			const std::string& fileName, const Vec3f& scale, const std::string& outFileName)
+		{
+			const Vec3i batchCount(1, 1, RoundUpDivide(dataSize.z, IplBasedFilter::SliceCount));
 
-			reader.readRegion(batchStart, Size3(curBatchSize), batchBuf.get());
+			const Vec3i maxBatchSize(dataSize.x, dataSize.y, IplBasedFilter::SliceCount);
 
-			const int sampledSliceCount = 1.0 * (bz * batchSize.z + curBatchSize.z) / step.z;
-			const auto curSampledSliceCount = sampledSliceCount - sumSampledZCount;
-
-
-			const Size3 curSampledVolume(sampledCount.x, sampledCount.y, curSampledSliceCount);
-
-			println("current batch size: {}, current batch sampled count: {}", curBatchSize, curSampledVolume);
+			RawReader reader(fileName, dataSize, sizeof(ValueType));
+			std::unique_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
+			std::ofstream out(outFileName, std::ios::binary);
 
 
-			for (int z = 0; z < curSampledVolume.z; z++)
+			const Size3 sampledCount(1.0 * dataSize.x / scale.x + 0.5, 1.0 * dataSize.y / scale.y + 0.5, 1.0 * dataSize.z / scale.z + 0.5);
+			const Vector3f step(1.0 * dataSize.x / sampledCount.x, 1.0 * dataSize.y / sampledCount.y, 1.0 * dataSize.z / sampledCount.z);
+
+			const Size3 subSampledVolume(sampledCount.x, sampledCount.y, std::ceil(IplBasedFilter::SliceCount * 1.0 / step.z));
+			std::unique_ptr<ValueType[]> sampledBuf(new ValueType[subSampledVolume.Prod()]);
+
+			println("data size: {}\nbatch size: {}\n sampled Volume Size: {}", maxBatchSize, subSampledVolume, sampledCount);
+
+#ifdef _DEBUG
+			size_t debugCount = 0;
+#endif
+
+			for (int bz = 0; bz < batchCount.z; bz++)
 			{
-				for (int y = 0; y < curSampledVolume.y; y++)
+				Vec3i curBatchSize(maxBatchSize);
+
+				if (bz == batchCount.z - 1 && dataSize.z % IplBasedFilter::SliceCount)
 				{
-					for (int x = 0; x < curSampledVolume.x; x++)
+					curBatchSize.z = dataSize.z % IplBasedFilter::SliceCount;
+				}
+
+				const auto batch3DID = Vec3i(0, 0, bz);
+				const auto batchStart = batch3DID * Vec3i(maxBatchSize);
+				reader.readRegion(batchStart, Size3(curBatchSize), reinterpret_cast<unsigned char*>(batchBuf.get()));
+
+				const auto t = GetSubSampledVolumeCount(batch3DID, maxBatchSize, curBatchSize, step);
+				//println("{},{}", t.first, t.second);
+
+				const auto& curSampledVolume = t.second - t.first;
+				const auto& prevTotalSampledCount = t.first;
+
+
+				//std::get<0>(t);
+#ifdef _DEBUG
+				debugCount += Size3(curSampledVolume).Prod();
+#endif
+				println("current batch id: {}, batch size: {}, sampled count: {}", batch3DID, curBatchSize, curSampledVolume);
+
+				// for each batch
+				for (int z = 0; z < curSampledVolume.z; z++)
+				{
+					for (int y = 0; y < curSampledVolume.y; y++)
 					{
-						const Point3i globalPos{ x, y,sumSampledZCount + z };
-						const Point3f localPos = ItplBasedFilter::Trans(globalPos, batchSize, Vec3i{ 1,1,bz }, step);
-						*(sampledBuf.get() + Linear({ x,y,z }, { curSampledVolume.x,curSampledVolume.y })) = ItplBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+						for (int x = 0; x < curSampledVolume.x; x++)
+						{
+							const auto globalPos = prevTotalSampledCount + Point3i(x, y, z);
+							const Point3f localPos = IplBasedFilter::Trans(globalPos, maxBatchSize, batch3DID, step);
+							*(sampledBuf.get() + Linear({ x,y,z }, Size2(curSampledVolume.x, curSampledVolume.y))) = IplBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+						}
 					}
 				}
+
+				out.write((char*)sampledBuf.get(), sizeof(ValueType) * curSampledVolume.Prod());
 			}
-			sumSampledZCount = sampledSliceCount;
-			sampledVolume.z += curSampledVolume.z;
-			out.write((char*)sampledBuf.get(), sizeof(ValueType) * curSampledVolume.Prod());
+			assert(debugCount == sampledCount.Prod());
+			out.close();
 		}
-		out.close();
-	}
-};
+	};
 
 
-template<typename KernelBasedFilterType>
-struct KernelBasedSampler
-{
-	using KernelBasedFilter = KernelBasedFilterType;
-	using ValueType = typename KernelBasedFilter::ValueType;
-
-	void Downsample(const Size3& size,
-		const std::string& fileName, const Vec3f& scale, const std::string& outFileName)const
+	template<typename KernelBasedFilterType>
+	struct KernelBasedSampler
 	{
-		//static_assert(KernelBasedFilter::KernelSize >= 2);
+		using KernelBasedFilter = KernelBasedFilterType;
+		using ValueType = typename KernelBasedFilter::ValueType;
 
-		println("Kernel Based, KernelSize:{}", KernelBasedFilter::KernelSize);
-
-		const Vec3i batchCount(1, 1, RoundUpDivide(size.z-1, KernelBasedFilter::KernelSize));
-
-		const Vec3i batchSize(size.x, size.y, KernelBasedFilter::KernelSize + 1);
-
-		const Size2 plane(RoundUpDivide(batchSize.x - 1, KernelBasedFilter::KernelSize), RoundUpDivide(batchSize.y - 1, KernelBasedFilter::KernelSize));
-
-		println("batch count:{}, BatchSize: {}, SampledPlaneSize: {}, Filter Size: {}, Data Size: {}",batchCount, batchSize, plane, KernelBasedFilter::KernelSize, size);
-
-		RawReader reader(fileName, size, sizeof(ValueType));
-		std::unique_ptr<ValueType[]> batchBuf(new ValueType[batchSize.Prod()]);
-
-		std::ofstream out(outFileName, std::ios::binary);
-		std::unique_ptr<ValueType[]> sampledBuf(new ValueType[plane.Prod()]);
-
-		if (out.is_open() == false)
+		static void Resample(const Size3& dataSize,
+			const std::string& fileName, const Vec3f& scale, const std::string& outFileName)
 		{
-			throw runtime_error("Failed to open file");
-		}
+			//static_assert(KernelBasedFilter::KernelSize >= 2);
+			const Vec3i kernelSize{ KernelBasedFilter::KernelSize,KernelBasedFilter::KernelSize,KernelBasedFilter::KernelSize };
+			const Vec3i batchCount(1, 1, RoundUpDivide(dataSize.z - 1, KernelBasedFilter::KernelSize));
+			const Vec3i maxBatchSize(dataSize.x, dataSize.y, KernelBasedFilter::KernelSize + 1);
 
-		for (int bz = 0; bz < batchCount.z; bz++)
-		{
-			const auto batchStart = Vec3i(0, 0, bz) * Vec3i(batchSize);
+			const Size2 subSampledPlane(RoundUpDivide(maxBatchSize.x - 1, kernelSize.x), RoundUpDivide(maxBatchSize.y - 1, kernelSize.y));
 
-			Vec3i curBatchSize(batchSize.x, batchSize.y, KernelBasedFilter::KernelSize + 1);
+			const Vec3i sampledDataSize(subSampledPlane.x, subSampledPlane.y, RoundUpDivide(dataSize.z - 1, kernelSize.z));
 
-			if (bz == batchCount.z - 1 && size.z % (KernelBasedFilter::KernelSize + 1) )
+			RawReader reader(fileName, dataSize, sizeof(ValueType));
+			std::unique_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
+
+			println("Kernel-Based Down sampling");
+			println("batch count:{}\nbatch size: {}\nsub-sampled size: {}\nkernel Size: {}\ndata Size: {}", batchCount, maxBatchSize, subSampledPlane, kernelSize, dataSize);
+			println("sampled data size: {}", sampledDataSize);
+
+			std::ofstream out(outFileName, std::ios::binary);
+			std::unique_ptr<ValueType[]> sampledBuf(new ValueType[subSampledPlane.Prod()]);
+
+			if (out.is_open() == false)
 			{
-				curBatchSize.z = size.z % (KernelBasedFilter::KernelSize+ 1);
+				println("Failed to open file {}", outFileName);
+				throw runtime_error("Failed to open file");
 			}
 
-			reader.readRegion(batchStart, Size3(curBatchSize), batchBuf.get());
-
-			println("batch id:{}, batch start: {},current batch size: {}", bz, batchStart, curBatchSize);
-
-			for (int y = 0; y < plane.y; y++)
+			for (int bz = 0; bz < batchCount.z; bz++)
 			{
-				for (int x = 0; x < plane.x; x++)
+
+				const auto batch3DID = Vec3i(0, 0, bz);
+				const auto batchStart = batch3DID * Vec3i(maxBatchSize);
+
+				Vec3i curBatchSize(maxBatchSize.x, maxBatchSize.y, KernelBasedFilter::KernelSize + 1);
+
+				if (bz == batchCount.z - 1 && dataSize.z % (KernelBasedFilter::KernelSize + 1))
 				{
-					const Point3i globalPos{ x,y,bz };
-					const Point3f localPos = KernelBasedFilterType::Trans(globalPos, curBatchSize, Vec3i{ 0,0,bz });
-					*(sampledBuf.get() + Linear({ x,y }, plane.x)) = KernelBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+					curBatchSize.z = dataSize.z % (KernelBasedFilter::KernelSize + 1);
 				}
+
+				reader.readRegion(batchStart, Size3(curBatchSize), reinterpret_cast<unsigned char*>(batchBuf.get()));
+
+				println("current batch id:{}, batch start: {},current batch size: {}", bz, batchStart, curBatchSize);
+
+				for (int y = 0; y < subSampledPlane.y; y++)
+				{
+					for (int x = 0; x < subSampledPlane.x; x++)
+					{
+						const Point3i globalPos{ x,y,bz };
+						const Point3f localPos = KernelBasedFilterType::Trans(globalPos, maxBatchSize, batch3DID);
+						*(sampledBuf.get() + Linear({ x,y }, subSampledPlane.x)) = KernelBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+					}
+				}
+
+				out.write((char*)sampledBuf.get(), sizeof(ValueType) * subSampledPlane.Prod());
 			}
-			out.write((char *)sampledBuf.get(), sizeof(ValueType) * plane.Prod());
+			out.close();
 		}
-		out.close();
-	}
-};
+	};
 
 
-template<typename FilterType, typename Enable = void> struct Sampler;
 
-// specialization for kernel-based down sampling
-template<typename FilterType> struct Sampler< FilterType, typename std::enable_if<std::is_base_of<KernelBase<typename FilterType::ValueType>, FilterType>::value>::type> :KernelBasedSampler<FilterType> {};
+	template<typename FilterType, typename Enable = void>
+	struct Sampler;
 
-// specialization for interpolation-based down sampling
-template<typename FilterType> struct Sampler< FilterType, typename std::enable_if<std::is_base_of<InterpolationBase<typename FilterType::ValueType>, FilterType>::value>::type> :InterpolationBasedSampler<FilterType> {};
+	// specialization for kernel-based down sampling
+	template<typename FilterType>
+	struct Sampler< FilterType, typename std::enable_if<std::is_base_of<KernelBase<typename FilterType::ValueType>, FilterType>::value>::type> :KernelBasedSampler<FilterType>
+	{
+
+	};
+
+	// specialization for interpolation-based down sampling
+	template<typename FilterType>
+	struct Sampler< FilterType, typename std::enable_if<std::is_base_of<InterpolationBase<typename FilterType::ValueType>, FilterType>::value>::type> :InterpolationBasedSampler<FilterType>
+	{
+
+	};
 
 
-int main()
-{
-
- 
-	//Sampler<TrivialKernel<unsigned char>>().Downsample({480,720,120},R"(C:\tmp\mixfrac.raw)",{},R"(C:\tmp\kds.raw)");
-	Sampler<TriLinear<unsigned char>>().Downsample({480,720,120},R"(C:\tmp\mixfrac.raw)",{2.f,2.f,2.f},R"(C:\tmp\kds.raw)");
-
-	//Sampler<TriLinear<unsigned char>> b;
-	//Sampler<GaussianKernel<unsigned char>> c;
-
-	//a.Downsample({}, "", {}, "");
-	//b.Downsample({}, "", {}, "");
-	//c.Downsample({}, "", {}, "");
-
-	return 0;
 }
 
 
-//int main(int argc, char** argv)
-//{
-	//using namespace std;
-	//cmdline::parser a;
+int main(int argc, char** argv)
+{
+	using namespace std;
+	cmdline::parser a;
 
+	a.add<string>("if", 'i', "input file name", true);
+	a.add<string>("of", 'o', "out file name", false, "a.out");
 
-	//a.add<string>("if", 'i', "input file name", true);
-
-	//a.add<string>("of", 'o', "out file name", false, "a.out");
-
-	//a.add<size_t>("offset", 0, "offset from beginning of the file", false, 0);
-
-	//a.add<size_t>("width", 'x', "width of the 3d data", true, 0);
-
-	//a.add<size_t>("height", 'y', "height of the 3d data", true, 0);
-
-	//a.add<size_t>("depth", 'z', "depth of the 3d data", true, 0);
-
-	//a.add<float>("sx", 0, "scale factor for the x-axis", true, 2);
-
-	//a.add<float>("sy", 0, "scale factor for the y-axis", true, 2);
-
-	//a.add<float>("sz", 0, "scale factor for the z-axis", true, 2);
+	a.add<int>("offset", 0, "offset from beginning of the file", false, 0);
+	a.add<int>("width", 'x', "width of the 3d data", true, 0);
+	a.add<int>("height", 'y', "height of the 3d data", true, 0);
+	a.add<int>("depth", 'z', "depth of the 3d data", true, 0);
+	
+	a.add<float>("sx", 0, "scale factor for the x-axis", true, 2);
+	a.add<float>("sy", 0, "scale factor for the y-axis", true, 2);
+	a.add<float>("sz", 0, "scale factor for the z-axis", true, 2);
+	a.add<string>("filter", 'f', "filter for the re-sampling", false, "trilinear", cmdline::oneof(string("trilinear"), string("gaussknl"), string("maxknl"), string("meanknl"), string("simple")));
 
 	//a.add<string>("type", 0, "element type of the 3d data", false, "char", cmdline::oneof("char", "short", "int", "float", "double"));
+	a.parse_check(argc, argv);
 
-	//a.parse_check(argc, argv);
+	const string inFileName = a.get<string>("if");
+	const string outFileName = a.get<string>("of");
+	Vec3f scale(a.get<float>("sx"), a.get<float>("sy"), a.get<float>("sz"));
+	Size3 size(a.get<int>("width"), a.get<int>("height"), a.get<int>("depth"));
+	size_t offset = a.get<int>("offset");
 
-
-	//std::size_t x, y, z;
-	//float sx, sy, sz;
-	//std::string inFileName, outFileName;
-	//std::size_t offset;
-
-	//x = a.get<size_t>("width");
-	//y = a.get<size_t>("height");
-	//z = a.get<size_t>("depth");
-
-	//inFileName = a.get<string>("if");
-	//outFileName = a.get<string>("of");
-
-	//sx = a.get<float>("sx");
-	//sy = a.get<float>("sy");
-	//sz = a.get<float>("sz");
-
-	//offset = a.get<size_t>("offset");
 	//string type = a.get<string>("type");
 
+	string filter = a.get<string>("filter");
 
-//}
+	
+	if (filter == "trilinear") {Sampler<TriLinear<char>>::Resample(size, inFileName, scale, outFileName); return 0; }
+	if (filter == "gaussknl") {Sampler<Gaussian2x2Kernel<char>>::Resample(size, inFileName, scale, outFileName); return 0;}
+	if (filter == "maxknl") {Sampler<MaxKernel<char>>::Resample(size, inFileName, scale, outFileName); return 0;}
+	if (filter == "meanknl"){Sampler<Mean2x2Kernel<char>>::Resample(size, inFileName, scale, outFileName); return 0;}
+	if (filter == "simple") {Sampler<Trivial2x2Kernel<char>>::Resample(size, inFileName, scale, outFileName); return 0;}
+	
+	return 0;
+}
