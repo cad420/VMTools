@@ -1,9 +1,9 @@
-#include <VMFoundation/rawreader.h>
 #include <VMUtils/cmdline.hpp>
 #include <VMCoreExtension/i3dblockfileplugininterface.h>
 #include <VMUtils/log.hpp>
 #include <VMat/numeric.h>
 #include <VMFoundation/pluginloader.h>
+#include <fstream>
 
 //#define USE_MAPPING
 
