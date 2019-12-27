@@ -22,7 +22,7 @@ class Sampler3D
 	const T* const data;
 	const vm::Size3 size;
 public:
-	Sampler3D(const T* data, const vm::Size3 size) :data(data), size(size)
+	Sampler3D(const  T* data, const vm::Size3 size) :data(data), size(size)
 	{
 
 	}
