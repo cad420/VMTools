@@ -6,6 +6,8 @@
 #include <VMUtils/cmdline.hpp>
 #include <VMFoundation/rawreader.h>
 
+#include <VMUtils/threadpool.hpp>
+#include <VMUtils/concurrency.hpp>
 
 #include <string>
 #include <fstream>
@@ -13,6 +15,21 @@
 
 
 namespace vm {
+
+	template<typename ValueType>
+	struct SampledBatch
+	{
+		size_t offset;
+		size_t size;
+		std::shared_ptr<ValueType[]> Buffer;
+		SampledBatch(size_t offset, size_t size, std::shared_ptr<ValueType[]> buf) :
+			offset(offset),
+			size(size),
+			Buffer(std::move(buf))
+		{}
+		//SampledBatch(SampledBatch&&) = default;
+		//SampledBatch& operator=(SampledBatch&&) = default;
+	};
 
 	template<typename T>
 	class Interpolator
@@ -63,6 +80,38 @@ namespace vm {
 	};
 
 
+	static constexpr Vec3i offset2x2[] =
+	{
+		{-1,-1,-1},
+			{-1,-1,0},
+			{-1,-1,1},
+			{-1,0,-1},
+			{-1,0,0},
+			{-1,0,1},
+			{-1,1,-1},
+			{-1,1,0},
+			{-1,1,1},
+			{0,-1,-1},
+			{0,-1,0},
+			{0,-1,1},
+			{0,0,-1},
+			{0,0,0},
+			{0,0,1},
+			{0,1,-1},
+			{0,1,0},
+			{0,1,1},
+			{1,-1,-1},
+			{1,-1,0},
+			{1,-1,1},
+			{1,0,-1},
+			{1,0,0},
+			{1,0,1},
+			{1,1,-1},
+			{1,1,0},
+			{1,1,1},
+	};
+
+
 	template<typename T>
 	struct MethodBase
 	{
@@ -91,7 +140,7 @@ namespace vm {
 		static constexpr int KernelSize = FilterSize;
 		static Point3f Trans(const Point3i& sampledGridGlobalPos, const Vec3i& batchSize, const Vec3i& batch3DID)
 		{
-			const auto halfSize = 1.0f * KernelSize / 2;
+			constexpr auto halfSize = 1.0f * KernelSize / 2;
 			return (Vec3f(sampledGridGlobalPos.x * KernelSize + halfSize,
 				sampledGridGlobalPos.y * KernelSize + halfSize,
 				sampledGridGlobalPos.z * KernelSize + halfSize)
@@ -102,38 +151,11 @@ namespace vm {
 
 
 
+
+
 	template<typename ValueType>
 	struct MaxKernel :Kernel<ValueType, 2>
 	{
-		static constexpr Vec3i offset[27] = {
-			{-1,-1,-1},
-			{-1,-1,0},
-			{-1,-1,1},
-			{-1,0,-1},
-			{-1,0,0},
-			{-1,0,1},
-			{-1,1,-1},
-			{-1,1,0},
-			{-1,1,1},
-			{0,-1,-1},
-			{0,-1,0},
-			{0,-1,1},
-			{0,0,-1},
-			{0,0,0},
-			{0,0,1},
-			{0,1,-1},
-			{0,1,0},
-			{0,1,1},
-			{1,-1,-1},
-			{1,-1,0},
-			{1,-1,1},
-			{1,0,-1},
-			{1,0,0},
-			{1,0,1},
-			{1,1,-1},
-			{1,1,0},
-			{1,1,1},
-		};
 
 		static ValueType Sample(const Point3i& sampledGridGlobalPos,
 			const Point3f& sampledGridLocalPos,
@@ -144,7 +166,7 @@ namespace vm {
 			ValueType val = std::numeric_limits<ValueType>::lowest();
 			for (int i = 0; i < 27; i++)
 			{
-				val = std::max(val, *(src + Linear(pos + offset[i], Size2(batchSize.x, batchSize.y))));
+				val = std::max(val, *(src + Linear(pos + offset2x2[i], Size2(batchSize.x, batchSize.y))));
 			}
 			return val;
 		}
@@ -178,36 +200,6 @@ namespace vm {
 	template<typename ValueType>
 	struct Mean2x2Kernel :Kernel<ValueType, 2>
 	{
-		static constexpr Vec3i offset[27] = {
-				{-1,-1,-1},
-				{-1,-1,0},
-				{-1,-1,1},
-				{-1,0,-1},
-				{-1,0,0},
-				{-1,0,1},
-				{-1,1,-1},
-				{-1,1,0},
-				{-1,1,1},
-				{0,-1,-1},
-				{0,-1,0},
-				{0,-1,1},
-				{0,0,-1},
-				{0,0,0},
-				{0,0,1},
-				{0,1,-1},
-				{0,1,0},
-				{0,1,1},
-				{1,-1,-1},
-				{1,-1,0},
-				{1,-1,1},
-				{1,0,-1},
-				{1,0,0},
-				{1,0,1},
-				{1,1,-1},
-				{1,1,0},
-				{1,1,1},
-		};
-
 		static ValueType Sample(const Point3i& sampledGridGlobalPos,
 			const Point3f& sampledGridLocalPos,
 			const ValueType* src,
@@ -217,7 +209,7 @@ namespace vm {
 			double v = 0;
 			for (int i = 0; i < 27; i++)
 			{
-				v += *(src + Linear(pos + offset[i], Size2(batchSize.x, batchSize.y)));
+				v += *(src + Linear(pos + offset2x2[i], Size2(batchSize.x, batchSize.y)));
 			}
 			return v / 27;
 		}
@@ -269,27 +261,41 @@ namespace vm {
 		}
 
 		static void Resample(const Size3& dataSize,
-			const std::string& fileName, const Vec3f& scale, const std::string& outFileName)
+			const std::string& fileName, const Vec3f& scale, const std::string& outFileName, int nthreadreading, int nthreadwrting)
 		{
+
+
+			
 			const Vec3i batchCount(1, 1, RoundUpDivide(dataSize.z, IplBasedFilter::SliceCount));
 
 			const Vec3i maxBatchSize(dataSize.x, dataSize.y, IplBasedFilter::SliceCount);
 
-			RawReader reader(fileName, dataSize, sizeof(ValueType));
-			std::unique_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
-			std::ofstream out(outFileName, std::ios::binary);
-
+			//RawReader reader(fileName, dataSize, sizeof(ValueType));
+			
+			//std::unique_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
+			//std::ofstream out(outFileName, std::ios::binary);
 
 			const Size3 sampledCount(1.0 * dataSize.x / scale.x + 0.5, 1.0 * dataSize.y / scale.y + 0.5, 1.0 * dataSize.z / scale.z + 0.5);
 			const Vector3f step(1.0 * dataSize.x / sampledCount.x, 1.0 * dataSize.y / sampledCount.y, 1.0 * dataSize.z / sampledCount.z);
 
 			const Size3 subSampledVolume(sampledCount.x, sampledCount.y, std::ceil(IplBasedFilter::SliceCount * 1.0 / step.z));
-			std::unique_ptr<ValueType[]> sampledBuf(new ValueType[subSampledVolume.Prod()]);
+			//std::unique_ptr<ValueType[]> sampledBuf(new ValueType[subSampledVolume.Prod()]);
 
 			println("data size: {}\nbatch size: {}\n sampled Volume Size: {}", maxBatchSize, subSampledVolume, sampledCount);
 
+
+
+			ThreadPool read(nthreadreading);
+			ThreadPool write(nthreadwrting);
+			auto que = std::make_shared<BlockingQueue<SampledBatch<ValueType>>>(std::min(nthreadreading, nthreadwrting));
+			std::shared_ptr<std::mutex> readerMux(new std::mutex()), writerMux(new std::mutex());
+
+			auto reader = std::make_shared<RawReader>(fileName, dataSize, sizeof(ValueType));
+			auto writer = std::make_shared<std::ofstream>(outFileName, std::ios::binary);
+			
+
 #ifdef _DEBUG
-			size_t debugCount = 0;
+			std::shared_ptr<std::atomic_int64_t> debugCount(new std::atomic_int64_t(0));
 #endif
 
 			for (int bz = 0; bz < batchCount.z; bz++)
@@ -300,42 +306,82 @@ namespace vm {
 				{
 					curBatchSize.z = dataSize.z % IplBasedFilter::SliceCount;
 				}
-
 				const auto batch3DID = Vec3i(0, 0, bz);
 				const auto batchStart = batch3DID * Vec3i(maxBatchSize);
-				reader.readRegion(batchStart, Size3(curBatchSize), reinterpret_cast<unsigned char*>(batchBuf.get()));
-
-				const auto t = GetSubSampledVolumeCount(batch3DID, maxBatchSize, curBatchSize, step);
-				//println("{},{}", t.first, t.second);
-
-				const auto& curSampledVolume = t.second - t.first;
-				const auto& prevTotalSampledCount = t.first;
 
 
-				//std::get<0>(t);
-#ifdef _DEBUG
-				debugCount += Size3(curSampledVolume).Prod();
-#endif
-				println("current batch id: {}, batch size: {}, sampled count: {}", batch3DID, curBatchSize, curSampledVolume);
-
-				// for each batch
-				for (int z = 0; z < curSampledVolume.z; z++)
+				auto producerTask = [que,reader,maxBatchSize,subSampledVolume,readerMux,debugCount,step](Vec3i batchStart,Vec3i  curBatchSize,Vec3i batch3DID,int bz)
 				{
-					for (int y = 0; y < curSampledVolume.y; y++)
+
+					std::shared_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
+					std::shared_ptr<ValueType[]> sampledBuf(new ValueType[subSampledVolume.Prod()]);
+					
+					std::unique_lock<std::mutex> lk(*readerMux);
+					reader->readRegion(batchStart, Size3(curBatchSize), reinterpret_cast<unsigned char*>(batchBuf.get()));
+					lk.unlock();
+
+					const auto t = GetSubSampledVolumeCount(batch3DID, maxBatchSize, curBatchSize, step);
+					//println("{},{}", t.first, t.second);
+
+					const auto& curSampledVolume = t.second - t.first;
+					const auto& prevTotalSampledCount = t.first;
+
+
+					//std::get<0>(t);
+#ifdef _DEBUG
+					debugCount->fetch_add( Size3(curSampledVolume).Prod());
+#endif
+					println("current batch id: {}, batch size: {}, sampled count: {}", batch3DID, curBatchSize, curSampledVolume);
+
+					// for each batch
+					for (int z = 0; z < curSampledVolume.z; z++)
 					{
-						for (int x = 0; x < curSampledVolume.x; x++)
+						for (int y = 0; y < curSampledVolume.y; y++)
 						{
-							const auto globalPos = prevTotalSampledCount + Point3i(x, y, z);
-							const Point3f localPos = IplBasedFilter::Trans(globalPos, maxBatchSize, batch3DID, step);
-							*(sampledBuf.get() + Linear({ x,y,z }, Size2(curSampledVolume.x, curSampledVolume.y))) = IplBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+							for (int x = 0; x < curSampledVolume.x; x++)
+							{
+								const auto globalPos = prevTotalSampledCount + Point3i(x, y, z);
+								const Point3f localPos = IplBasedFilter::Trans(globalPos, maxBatchSize, batch3DID, step);
+								*(sampledBuf.get() + Linear({ x,y,z }, Size2(curSampledVolume.x, curSampledVolume.y))) = IplBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+							}
 						}
 					}
-				}
 
-				out.write((char*)sampledBuf.get(), sizeof(ValueType) * curSampledVolume.Prod());
+					const size_t size = curSampledVolume.Prod() * sizeof(ValueType);
+					const size_t offset = prevTotalSampledCount.z * subSampledVolume.x * subSampledVolume.y * sizeof(ValueType);
+
+
+					que->Put(SampledBatch<ValueType>(
+						offset,size,sampledBuf
+						));
+				};
+
+
+				auto consumerTask = [que,writer,writerMux]()
+				{
+					auto t = que->Take();
+
+					std::unique_lock<std::mutex> lk(*writerMux);
+					writer->seekp(t.offset, std::ios::beg);
+					writer->write((char*)t.Buffer.get(), t.size);
+				};
+
+				read.AppendTask(producerTask, batchStart, curBatchSize, batch3DID,bz);
+				write.AppendTask(consumerTask);
+
+				
+
 			}
-			assert(debugCount == sampledCount.Prod());
-			out.close();
+
+			read.Wait();
+			write.Wait();
+
+#ifdef _DEBUG
+			assert(debugCount->load() ==  sampledCount.Prod());
+#endif
+
+			writer->close();
+			
 		}
 	};
 
@@ -347,8 +393,19 @@ namespace vm {
 		using ValueType = typename KernelBasedFilter::ValueType;
 
 		static void Resample(const Size3& dataSize,
-			const std::string& fileName, const Vec3f& scale, const std::string& outFileName)
+			const std::string& fileName, const Vec3f& scale, const std::string& outFileName,int nthreadreading,int nthreadwrting)
 		{
+
+
+
+			ThreadPool read(nthreadreading);
+			ThreadPool write(nthreadwrting);
+			auto que = std::make_shared<BlockingQueue<SampledBatch<ValueType>>>(std::min(nthreadreading,nthreadwrting));
+			
+			std::shared_ptr<std::mutex> readerMux(new std::mutex()), writerMux(new std::mutex());
+			
+			
+			
 			//static_assert(KernelBasedFilter::KernelSize >= 2);
 			const Vec3i kernelSize{ KernelBasedFilter::KernelSize,KernelBasedFilter::KernelSize,KernelBasedFilter::KernelSize };
 			const Vec3i batchCount(1, 1, RoundUpDivide(dataSize.z - 1, KernelBasedFilter::KernelSize));
@@ -358,52 +415,89 @@ namespace vm {
 
 			const Vec3i sampledDataSize(subSampledPlane.x, subSampledPlane.y, RoundUpDivide(dataSize.z - 1, kernelSize.z));
 
-			RawReader reader(fileName, dataSize, sizeof(ValueType));
-			std::unique_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
+			//RawReader reader(fileName, dataSize, sizeof(ValueType));
+
+			auto reader = std::make_shared<RawReader>(fileName, dataSize, sizeof(ValueType));
+			
+			
 
 			println("Kernel-Based Down sampling");
 			println("batch count:{}\nbatch size: {}\nsub-sampled size: {}\nkernel Size: {}\ndata Size: {}", batchCount, maxBatchSize, subSampledPlane, kernelSize, dataSize);
 			println("sampled data size: {}", sampledDataSize);
 
-			std::ofstream out(outFileName, std::ios::binary);
-			std::unique_ptr<ValueType[]> sampledBuf(new ValueType[subSampledPlane.Prod()]);
 
-			if (out.is_open() == false)
+			auto writer = std::make_shared<std::ofstream>(outFileName,std::ios::binary);
+			//std::ofstream out(outFileName, std::ios::binary);
+			//
+
+			if (writer->is_open() == false)
 			{
 				println("Failed to open file {}", outFileName);
 				throw std::runtime_error("Failed to open file");
 			}
+			
 
 			for (int bz = 0; bz < batchCount.z; bz++)
 			{
 
 				const auto batch3DID = Vec3i(0, 0, bz);
-				const auto batchStart = batch3DID * Vec3i(maxBatchSize);
-
+				const auto batchStart = batch3DID * Vec3i(maxBatchSize.x, maxBatchSize.y, maxBatchSize.z - 1);
 				Vec3i curBatchSize(maxBatchSize.x, maxBatchSize.y, KernelBasedFilter::KernelSize + 1);
-
 				if (bz == batchCount.z - 1 && dataSize.z % (KernelBasedFilter::KernelSize + 1))
 				{
 					curBatchSize.z = dataSize.z % (KernelBasedFilter::KernelSize + 1);
 				}
 
-				reader.readRegion(batchStart, Size3(curBatchSize), reinterpret_cast<unsigned char*>(batchBuf.get()));
-
-				println("current batch id:{}, batch start: {},current batch size: {}", bz, batchStart, curBatchSize);
-
-				for (int y = 0; y < subSampledPlane.y; y++)
+				auto producerTask = [subSampledPlane,maxBatchSize,que,reader,readerMux](const Vec3i &batch3DID,const Vec3i & batchStart,const Vec3i & curBatchSize,int bz)
 				{
-					for (int x = 0; x < subSampledPlane.x; x++)
-					{
-						const Point3i globalPos{ x,y,bz };
-						const Point3f localPos = KernelBasedFilterType::Trans(globalPos, maxBatchSize, batch3DID);
-						*(sampledBuf.get() + Linear({ x,y }, subSampledPlane.x)) = KernelBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
-					}
-				}
 
-				out.write((char*)sampledBuf.get(), sizeof(ValueType) * subSampledPlane.Prod());
+					const size_t size = subSampledPlane.Prod() * sizeof(ValueType);
+					const size_t offset = bz * size;
+					
+					std::shared_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
+
+					std::unique_lock<std::mutex> lk(*readerMux);
+					reader->readRegion(batchStart, Size3(curBatchSize), reinterpret_cast<unsigned char*>(batchBuf.get()));
+					lk.unlock();
+
+					println("current batch id:{}, batch start: {},current batch size: {}, subsampleplane: {}", bz, batchStart, curBatchSize, subSampledPlane);
+					std::shared_ptr<ValueType[]> sampledBuf(new ValueType[subSampledPlane.Prod()]);
+
+					for (int y = 0; y < subSampledPlane.y; y++)
+					{
+						for (int x = 0; x < subSampledPlane.x; x++)
+						{
+							const Point3i globalPos{ x,y,bz };
+							const Point3f localPos = KernelBasedFilterType::Trans(globalPos, maxBatchSize, batch3DID);
+							*(sampledBuf.get() + Linear({ x,y }, subSampledPlane.x)) = KernelBasedFilter::Sample(globalPos, localPos, batchBuf.get(), curBatchSize);
+						}
+					}
+
+					que->Put(std::move(SampledBatch(
+						offset,
+						size,
+						sampledBuf
+					)));
+				};
+
+				auto consumerTask = [que, writer, writerMux]()
+				{
+					auto t = que->Take();
+					
+					std::unique_lock<std::mutex> lk(*writerMux);
+					writer->seekp(t.offset, std::ios::beg);
+					writer->write((char*)t.Buffer.get(), t.size);
+					//lk.unlock();
+				};
+
+				read.AppendTask(producerTask,batch3DID,batchStart,curBatchSize,bz);
+				write.AppendTask(consumerTask);
 			}
-			out.close();
+			
+			read.Wait();
+			write.Wait();
+			writer->close();
+
 		}
 	};
 
