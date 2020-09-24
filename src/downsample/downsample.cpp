@@ -1,81 +1,84 @@
 
 #include "sample.hpp"
+#include <VMUtils/ref.hpp>
+
+using namespace std;
 
 
 
-vm::Size3 SampleSize(const vm::Size3& orignalSize, const vm::Vector3f& factor)
-{
-	return vm::Size3(1.0 * orignalSize.x / factor.x, 1.0 * orignalSize.y / factor.y, 1.0 * orignalSize.z / factor.z);
-}
-
-template <typename T>
-void Sample(const std::string& inFileName, int offset, int x, int y, int z, float sx, float sy, float sz, const std::string& outFileName)
-{
-
-
-	const auto sampleSize = vm::Size3(1.0 * x / sx + 0.5, 1.0 * y / sy + 0.5, 1.0 * z / sz + 0.5);
-	vm::Vector3f step(1.0 * x / sampleSize.x, 1.0 * y / sampleSize.y, 1.0 * z / sampleSize.z);
-
-
-	std::cout << "Downsample Size:" << sampleSize << std::endl;
-	std::cout << "Step:" << step << std::endl;
-
-	std::unique_ptr<T> buf(new T[x * y * z]);
-	vm::Ref<IMappingFile> rm;
-#ifdef _WIN32
-	rm = vm::PluginLoader::GetPluginLoader()->CreatePlugin<IMappingFile>("windows");
-#else
-	rm = ysl::PluginLoader::GetPluginLoader()->CreatePlugin<IMappingFile>("linux");
-#endif
-
-
-
-	if (rm == nullptr)
-		throw std::runtime_error("IO plugin can not be loaded");
-	rm->Open(inFileName, x * y * z, FileAccess::Read, MapAccess::ReadOnly);
-	const auto ptr = rm->FileMemPointer(0, x * y * z + offset);
-	if (!ptr)
-	{
-		std::cout << "File mapping failed\n";
-		return;
-	}
-
-	Sampler3D<T> sampler(reinterpret_cast<T*>((char*)ptr + offset), vm::Size3(x, y, z));
-
-
-	const auto sliceStep = 5;
-	const auto bytes = sampleSize.x * sampleSize.y * sliceStep;
-	std::unique_ptr<T[]> downsampleData(new T[bytes]);
-	//std::unique_ptr<T[]> originalData(new T[x * y * sliceStep]);
-	std::ofstream out(outFileName, std::ios::binary);
-
-	for (int zz = 0; zz < sampleSize.z; zz += sliceStep)
-	{
-		std::size_t actualSlice;
-		if (zz + sliceStep >= sampleSize.z)
-			actualSlice = sampleSize.z - zz;
-		else
-			actualSlice = sliceStep;
-
-		const auto actualBytes = actualSlice * sampleSize.x * sampleSize.y;
-
-		for (int s = 0; s < actualSlice; s++)
-		{
-			for (int yy = 0; yy < sampleSize.y; yy++)
-			{
-				for (int xx = 0; xx < sampleSize.x; xx++)
-				{
-					const auto index = sampleSize.x * ((s)*sampleSize.y + yy) + xx;
-					downsampleData[index] = sampler.Sample(vm::Point3f(xx * step.x, yy * step.y, (zz + s) * step.z));
-				}
-			}
-		}
-
-		out.write(reinterpret_cast<char*>(downsampleData.get()), actualBytes);
-		std::cout << "Writing: " << zz << " to " << zz + actualSlice << " of " << actualBytes << " finished\n";
-	}
-	system("pause");
-}
+// vm::Size3 SampleSize(const vm::Size3& orignalSize, const vm::Vector3f& factor)
+// {
+	// return vm::Size3(1.0 * orignalSize.x / factor.x, 1.0 * orignalSize.y / factor.y, 1.0 * orignalSize.z / factor.z);
+// }
+//
+// template <typename T>
+// void Sample(const std::string& inFileName, int offset, int x, int y, int z, float sx, float sy, float sz, const std::string& outFileName)
+// {
+//
+//
+	// const auto sampleSize = vm::Size3(1.0 * x / sx + 0.5, 1.0 * y / sy + 0.5, 1.0 * z / sz + 0.5);
+	// vm::Vector3f step(1.0 * x / sampleSize.x, 1.0 * y / sampleSize.y, 1.0 * z / sampleSize.z);
+//
+//
+	// std::cout << "Downsample Size:" << sampleSize << std::endl;
+	// std::cout << "Step:" << step << std::endl;
+//
+	// std::unique_ptr<T> buf(new T[x * y * z]);
+	// vm::Ref<IMappingFile> rm;
+// #ifdef _WIN32
+	// rm = vm::PluginLoader::GetPluginLoader()->CreatePlugin<IMappingFile>("windows");
+// #else
+	// rm = ysl::PluginLoader::GetPluginLoader()->CreatePlugin<IMappingFile>("linux");
+// #endif
+//
+//
+//
+	// if (rm == nullptr)
+		// throw std::runtime_error("IO plugin can not be loaded");
+	// rm->Open(inFileName, x * y * z, FileAccess::Read, MapAccess::ReadOnly);
+	// const auto ptr = rm->FileMemPointer(0, x * y * z + offset);
+	// if (!ptr)
+	// {
+		// std::cout << "File mapping failed\n";
+		// return;
+	// }
+//
+	// Sampler3D<T> sampler(reinterpret_cast<T*>((char*)ptr + offset), vm::Size3(x, y, z));
+//
+//
+	// const auto sliceStep = 5;
+	// const auto bytes = sampleSize.x * sampleSize.y * sliceStep;
+	// std::unique_ptr<T[]> downsampleData(new T[bytes]);
+  //std::unique_ptr<T[]> originalData(new T[x * y * sliceStep]);
+	// std::ofstream out(outFileName, std::ios::binary);
+//
+	// for (int zz = 0; zz < sampleSize.z; zz += sliceStep)
+	// {
+		// std::size_t actualSlice;
+		// if (zz + sliceStep >= sampleSize.z)
+			// actualSlice = sampleSize.z - zz;
+		// else
+			// actualSlice = sliceStep;
+//
+		// const auto actualBytes = actualSlice * sampleSize.x * sampleSize.y;
+//
+		// for (int s = 0; s < actualSlice; s++)
+		// {
+			// for (int yy = 0; yy < sampleSize.y; yy++)
+			// {
+				// for (int xx = 0; xx < sampleSize.x; xx++)
+				// {
+					// const auto index = sampleSize.x * ((s)*sampleSize.y + yy) + xx;
+					// downsampleData[index] = sampler.Sample(vm::Point3f(xx * step.x, yy * step.y, (zz + s) * step.z));
+				// }
+			// }
+		// }
+//
+		// out.write(reinterpret_cast<char*>(downsampleData.get()), actualBytes);
+		// std::cout << "Writing: " << zz << " to " << zz + actualSlice << " of " << actualBytes << " finished\n";
+	// }
+	// system("pause");
+// }
 
 #define cauto const auto
 

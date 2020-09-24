@@ -80,7 +80,7 @@ namespace vm {
 	};
 
 
-	static constexpr Vec3i offset2x2[] =
+	static Vec3i offset2x2[] =
 	{
 		{-1,-1,-1},
 			{-1,-1,0},
@@ -310,7 +310,11 @@ namespace vm {
 				const auto batchStart = batch3DID * Vec3i(maxBatchSize);
 
 
+#ifdef _DEBUG
 				auto producerTask = [que,reader,maxBatchSize,subSampledVolume,readerMux,debugCount,step](Vec3i batchStart,Vec3i  curBatchSize,Vec3i batch3DID,int bz)
+#else
+				auto producerTask = [que,reader,maxBatchSize,subSampledVolume,readerMux,step](Vec3i batchStart,Vec3i  curBatchSize,Vec3i batch3DID,int bz)
+#endif
 				{
 
 					std::shared_ptr<ValueType[]> batchBuf(new ValueType[maxBatchSize.Prod()]);
@@ -325,7 +329,6 @@ namespace vm {
 
 					const auto& curSampledVolume = t.second - t.first;
 					const auto& prevTotalSampledCount = t.first;
-
 
 					//std::get<0>(t);
 #ifdef _DEBUG
