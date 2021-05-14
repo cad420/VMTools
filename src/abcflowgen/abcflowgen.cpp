@@ -9,7 +9,9 @@
 
 const float Pi = 3.1415926535;
 
-int ABCFlowGen(std::size_t x, std::size_t y, std::size_t z)
+
+
+int ABCFlowGen(std::size_t x, std::size_t y, std::size_t z,const std::string & fileName)
 {
 	const auto A = std::sqrt(3);
 	const auto B = std::sqrt(2);
@@ -94,7 +96,7 @@ int ABCFlowGen(std::size_t x, std::size_t y, std::size_t z)
 	}
 
 
-	std::ofstream outFile("D:\\scidata\\abc\\s1" + ss.str() + ".raw", std::ostream::binary);
+	std::ofstream outFile(fileName, std::ostream::binary);
 	if (outFile.is_open() == false)
 	{
 		std::cout << " Can not open file\n";
@@ -108,7 +110,9 @@ int ABCFlowGen(std::size_t x, std::size_t y, std::size_t z)
 	return 0;
 }
 
-int SimpleBlockGen(std::size_t x, std::size_t y, std::size_t z, int xColor, int yColor, int zColor)
+
+
+int SimpleBlockGen(std::size_t x, std::size_t y, std::size_t z, int xColor, int yColor, int zColor,const std::string & fileName)
 {
 	const auto A = std::sqrt(3);
 	const auto B = std::sqrt(2);
@@ -165,7 +169,7 @@ int SimpleBlockGen(std::size_t x, std::size_t y, std::size_t z, int xColor, int 
 		std::cout << z << " of " << sideZ << " in total.\n";
 	}
 
-	std::ofstream outFile("D:\\scidata\\abc\\sb_" + ss.str() + ".raw", std::ostream::binary);
+	std::ofstream outFile(fileName, std::ostream::binary);
 	if (outFile.is_open() == false)
 	{
 		std::cout << " Can not open file\n";
